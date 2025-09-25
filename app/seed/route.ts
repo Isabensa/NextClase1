@@ -1,117 +1,99 @@
-import bcrypt from 'bcrypt';
+// app/seed/route.ts
+import { NextResponse } from 'next/server';
 import postgres from 'postgres';
-import { invoices, customers, revenue, users } from '../lib/placeholder-data';
 
 const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
 
-async function seedUsers() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-  await sql`
-    CREATE TABLE IF NOT EXISTS users (
-      id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL
-    );
-  `;
-
-  const insertedUsers = await Promise.all(
-    users.map(async (user) => {
-      const hashedPassword = await bcrypt.hash(user.password, 10);
-      return sql`
-        INSERT INTO users (id, name, email, password)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${hashedPassword})
-        ON CONFLICT (id) DO NOTHING;
-      `;
-    }),
-  );
-
-  return insertedUsers;
-}
-
-async function seedInvoices() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS invoices (
-      id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      customer_id UUID NOT NULL,
-      amount INT NOT NULL,
-      status VARCHAR(255) NOT NULL,
-      date DATE NOT NULL
-    );
-  `;
-
-  const insertedInvoices = await Promise.all(
-    invoices.map(
-      (invoice) => sql`
-        INSERT INTO invoices (customer_id, amount, status, date)
-        VALUES (${invoice.customer_id}, ${invoice.amount}, ${invoice.status}, ${invoice.date})
-        ON CONFLICT (id) DO NOTHING;
-      `,
-    ),
-  );
-
-  return insertedInvoices;
-}
-
-async function seedCustomers() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS customers (
-      id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) NOT NULL,
-      image_url VARCHAR(255) NOT NULL
-    );
-  `;
-
-  const insertedCustomers = await Promise.all(
-    customers.map(
-      (customer) => sql`
-        INSERT INTO customers (id, name, email, image_url)
-        VALUES (${customer.id}, ${customer.name}, ${customer.email}, ${customer.image_url})
-        ON CONFLICT (id) DO NOTHING;
-      `,
-    ),
-  );
-
-  return insertedCustomers;
-}
-
-async function seedRevenue() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS revenue (
-      month VARCHAR(4) NOT NULL UNIQUE,
-      revenue INT NOT NULL
-    );
-  `;
-
-  const insertedRevenue = await Promise.all(
-    revenue.map(
-      (rev) => sql`
-        INSERT INTO revenue (month, revenue)
-        VALUES (${rev.month}, ${rev.revenue})
-        ON CONFLICT (month) DO NOTHING;
-      `,
-    ),
-  );
-
-  return insertedRevenue;
-}
-
 export async function GET() {
   try {
-    const result = await sql.begin((sql) => [
-      seedUsers(),
-      seedCustomers(),
-      seedInvoices(),
-      seedRevenue(),
-    ]);
+    // 1) Crear tablas si no existen (base)
+    await sql/*sql*/`
+      CREATE TABLE IF NOT EXISTS customers (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL
+      );
+    `;
 
-    return Response.json({ message: 'Database seeded successfully' });
-  } catch (error) {
-    return Response.json({ error }, { status: 500 });
+    await sql/*sql*/`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        amount INTEGER NOT NULL
+      );
+    `;
+
+    await sql/*sql*/`
+      CREATE TABLE IF NOT EXISTS revenue (
+        month TEXT PRIMARY KEY,
+        revenue INTEGER NOT NULL
+      );
+    `;
+
+    // 2) Migraciones suaves: agregar columnas si faltan
+    await sql/*sql*/`ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;`;
+    await sql/*sql*/`ALTER TABLE customers ADD COLUMN IF NOT EXISTS image_url TEXT;`;
+    await sql/*sql*/`ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS status TEXT;`;
+    await sql/*sql*/`ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS date DATE;`;
+
+    // 2.1) Asegurar UNIQUE en customers.email (si no existe)
+    await sql/*sql*/`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'customers_email_key'
+        ) THEN
+          ALTER TABLE customers ADD CONSTRAINT customers_email_key UNIQUE (email);
+        END IF;
+      END
+      $$;
+    `;
+
+    // 2.2) Backfill para filas antiguas (evita NULLs)
+    await sql/*sql*/`UPDATE invoices SET status = 'paid' WHERE status IS NULL;`;
+    await sql/*sql*/`UPDATE invoices SET date   = CURRENT_DATE WHERE date IS NULL;`;
+
+    // 3) Insertar datos de ejemplo (idempotente)
+    await sql/*sql*/`
+      INSERT INTO customers (name, email, image_url) VALUES
+        ('Ada Lovelace','ada@example.com','https://i.pravatar.cc/64?img=1'),
+        ('Grace Hopper','grace@example.com','https://i.pravatar.cc/64?img=2'),
+        ('Evil Rabbit','rabbit@example.com','https://i.pravatar.cc/64?img=3')
+      ON CONFLICT (email) DO NOTHING;
+    `;
+
+    const ada   = await sql/*sql*/`SELECT id FROM customers WHERE email='ada@example.com' LIMIT 1;`;
+    const grace = await sql/*sql*/`SELECT id FROM customers WHERE email='grace@example.com' LIMIT 1;`;
+    const evil  = await sql/*sql*/`SELECT id FROM customers WHERE email='rabbit@example.com' LIMIT 1;`;
+
+    await sql/*sql*/`
+      INSERT INTO invoices (customer_id, amount, status, date) VALUES
+        (${ada[0].id},   145000, 'paid',    '2025-08-02'),
+        (${grace[0].id},  99000, 'pending', '2025-08-03'),
+        (${evil[0].id},   66600, 'paid',    '2025-08-04'),
+        (${ada[0].id},   250000, 'paid',    '2025-08-06'),
+        (${grace[0].id},  12000, 'pending', '2025-08-07')
+      ON CONFLICT DO NOTHING;
+    `;
+
+    await sql/*sql*/`
+      INSERT INTO revenue (month, revenue) VALUES
+        ('Jan',1200000),('Feb',900000),('Mar',1500000),
+        ('Apr',800000),('May',1000000),('Jun',1700000),
+        ('Jul',1600000),('Aug',1900000),('Sep',1100000),
+        ('Oct',1300000),('Nov',1400000),('Dec',2000000)
+      ON CONFLICT (month) DO NOTHING;
+    `;
+
+    return NextResponse.json({ ok: true, message: 'Database seeded successfully' });
+  } catch (e: any) {
+    // Desempaquetar AggregateError para ver el motivo real
+    const msg =
+      e?.errors?.map?.((x: any) => x?.message || String(x)).join(' | ') ||
+      e?.message ||
+      String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  } finally {
+    await sql.end({ timeout: 1 });
   }
 }
