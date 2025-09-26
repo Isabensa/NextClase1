@@ -1,3 +1,4 @@
+// app/ui/search.tsx
 'use client';
 
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
@@ -9,11 +10,9 @@ export default function Search({ placeholder }: { placeholder: string }) {
   const pathname = usePathname();
   const { replace } = useRouter();
 
-  const handleSearch = useDebouncedCallback((raw: string) => {
-    const term = raw.trim();
-
-    // 👇 OJO: construimos URLSearchParams desde 'string' (o entries), no desde el objeto proxy
-    const params = new URLSearchParams(searchParams.toString());
+  const handleSearch = useDebouncedCallback((term: string) => {
+    const params = new URLSearchParams(searchParams);
+    // Siempre que busco, vuelvo a la página 1
     params.set('page', '1');
 
     if (term) {
@@ -22,10 +21,7 @@ export default function Search({ placeholder }: { placeholder: string }) {
       params.delete('query');
     }
 
-    // Evita reemplazos innecesarios
-    if (params.toString() !== searchParams.toString()) {
-      replace(`${pathname}?${params.toString()}`);
-    }
+    replace(`${pathname}?${params.toString()}`);
   }, 300);
 
   return (
@@ -36,7 +32,7 @@ export default function Search({ placeholder }: { placeholder: string }) {
         className="peer block w-full rounded-md border border-gray-200 py-[9px] pl-10 text-sm outline-2 placeholder:text-gray-500"
         placeholder={placeholder}
         onChange={(e) => handleSearch(e.target.value)}
-        defaultValue={searchParams.get('query') ?? ''}
+        defaultValue={searchParams.get('query')?.toString() ?? ''}
       />
       <MagnifyingGlassIcon
         className="absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900"
