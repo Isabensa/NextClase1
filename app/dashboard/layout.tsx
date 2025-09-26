@@ -1,7 +1,10 @@
-﻿import type { ReactNode } from "react";
-import SideNav from "../ui/dashboard/sidenav"; // 👈 import RELATIVO
+﻿// app/dashboard/layout.tsx
+import type { ReactNode } from 'react';
+import SideNav from '@/app/ui/dashboard/sidenav';
 
-// Layout para todas las rutas /dashboard/*
+// 👇 PPR activado para todo /dashboard/*
+export const experimental_ppr = true;
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen flex-col md:flex-row md:overflow-hidden">

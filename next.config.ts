@@ -2,12 +2,12 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  experimental: {
+    ppr: 'incremental', // activa Partial Prerendering de forma incremental
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'i.pravatar.cc' },
-      // si en el futuro usás otros orígenes, podés agregarlos aquí:
-      // { protocol: 'https', hostname: 'images.unsplash.com' },
-      // { protocol: 'https', hostname: 'avatars.githubusercontent.com' },
     ],
   },
 };
